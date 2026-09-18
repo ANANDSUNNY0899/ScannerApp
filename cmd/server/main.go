@@ -70,6 +70,7 @@ func main() {
 	// Repositories
 	userRepo := postgres.NewUserRepository(db)
 	syncRepo := postgres.NewSyncRepository(db)
+	receiptRepo := postgres.NewReceiptRepository(db)
 	limiterRepo := redis.NewLimiterRepository(rdb)
 
 	// Services
@@ -77,12 +78,15 @@ func main() {
 	syncService := service.NewSyncService(syncRepo)
 	ocrService := service.NewOCRService(limiterRepo, cfg.MaxFreeOCR)
 	billingService, _ := service.NewPlayBillingService(context.Background())
+	geminiService := service.NewGeminiService(cfg.GeminiAPIKey, cfg.GeminiModel)
+	receiptService := service.NewReceiptService(receiptRepo, geminiService, s3Storage, cfg.S3Bucket)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService)
 	syncHandler := handler.NewSyncHandler(syncService, s3Storage, cfg.S3Bucket)
 	ocrHandler := handler.NewOCRHandler(ocrService, userRepo)
 	subscriptionHandler := handler.NewSubscriptionHandler(billingService, userRepo)
+	receiptHandler := handler.NewReceiptHandler(receiptService)
 
 	// Router Setup
 	r := mux.NewRouter()
@@ -125,6 +129,15 @@ func main() {
 
 	// Subscription Routes
 	protected.HandleFunc("/subscriptions/verify", subscriptionHandler.Verify).Methods(http.MethodPost)
+
+	// Universal Multi-Tenant Receipt Extraction & Ledger Routes
+	protected.HandleFunc("/receipts/extract", receiptHandler.Extract).Methods(http.MethodPost)
+	protected.HandleFunc("/receipts", receiptHandler.List).Methods(http.MethodGet)
+	protected.HandleFunc("/receipts/summary", receiptHandler.Summary).Methods(http.MethodGet)
+	protected.HandleFunc("/receipts/export/csv", receiptHandler.ExportCSV).Methods(http.MethodGet)
+	protected.HandleFunc("/receipts/{id}", receiptHandler.GetByID).Methods(http.MethodGet)
+	protected.HandleFunc("/receipts/{id}", receiptHandler.Update).Methods(http.MethodPut)
+	protected.HandleFunc("/receipts/{id}", receiptHandler.Delete).Methods(http.MethodDelete)
 
 	// Server port configuration (Render dynamically sets $PORT)
 	port := os.Getenv("PORT")
