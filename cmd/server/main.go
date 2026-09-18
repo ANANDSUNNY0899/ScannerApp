@@ -88,13 +88,16 @@ func main() {
 	r := mux.NewRouter()
 	r.Use(middleware.LoggerMiddleware)
 
-	// Health Check
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health Checks
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusOK, map[string]string{
-			"status": "healthy",
-			"time":   time.Now().UTC().Format(time.RFC3339),
+			"status":  "healthy",
+			"service": "scanner-backend",
+			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
-	}).Methods(http.MethodGet)
+	}
+	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
+	r.HandleFunc("/health", healthHandler).Methods(http.MethodGet)
 
 	api := r.PathPrefix("/api/v1").Subrouter()
 

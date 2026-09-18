@@ -25,7 +25,8 @@ build/
 *.dylib
 *.test
 *.out
-server
+/server
+server.exe
 
 # Temporary Files & Logs
 tmp/
