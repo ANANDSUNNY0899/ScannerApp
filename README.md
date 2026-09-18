@@ -1,6 +1,6 @@
 # ?? ScannerApp Cloud Backend
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED?style=flat&logo=docker)](Dockerfile)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1?style=flat&logo=postgresql)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-RateLimiting-DC382D?style=flat&logo=redis)](https://redis.io/)
@@ -76,7 +76,7 @@ High-performance, offline-first cloud synchronization and OCR backend for the **
    - Includes automatic sandbox/mock fallback mode for local emulator testing.
 
 5. **Production Multi-Stage Docker Build**:
-   - `golang:1.22-alpine` builder compiles a stripped, static binary.
+   - `golang:1.25-alpine` builder compiles a stripped, static binary.
    - `alpine:latest` runner image with system CA certificates and bundled SQL migrations.
    - Dynamically binds to `$PORT` assigned by cloud providers.
 
@@ -87,7 +87,7 @@ High-performance, offline-first cloud synchronization and OCR backend for the **
 
 ## ?? Tech Stack
 
-- **Language**: Go 1.22+
+- **Language**: Go 1.25+
 - **Router**: `gorilla/mux`
 - **Database**: PostgreSQL 16+ with `sqlx` and `lib/pq`
 - **Cache & Quotas**: Redis with `go-redis/v9`
@@ -173,7 +173,7 @@ All migrations are completely idempotent (`IF NOT EXISTS`).
 ## ?? Local Development
 
 ### 1. Prerequisites
-- Go 1.22+
+- Go 1.25+
 - Docker & Docker Compose
 
 ### 2. Run Infrastructure with Docker Compose
