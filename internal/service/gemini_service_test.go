@@ -39,7 +39,7 @@ func TestCleanJSONResponse(t *testing.T) {
 }
 
 func TestGeminiServiceFallback(t *testing.T) {
-	service := NewGeminiService("", "gemini-2.5-flash")
+	service := NewGeminiService("", "gemini-3.6-flash")
 	extracted, err := service.ExtractReceiptData(context.Background(), []byte("dummy-image-bytes"), "image/jpeg")
 	if err != nil {
 		t.Fatalf("expected fallback success, got error: %v", err)

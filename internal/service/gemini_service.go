@@ -28,11 +28,11 @@ type geminiService struct {
 }
 
 func NewGeminiService(apiKey, modelName string) GeminiService {
-	// Prioritize GEMINI_MODEL environment variable, fallback to gemini-2.5-flash
+	// Prioritize GEMINI_MODEL environment variable, fallback to gemini-3.6-flash
 	if envModel := os.Getenv("GEMINI_MODEL"); envModel != "" {
 		modelName = envModel
-	} else if modelName == "" || modelName == "gemini-1.5-flash" {
-		modelName = "gemini-2.5-flash"
+	} else if modelName == "" || modelName == "gemini-1.5-flash" || modelName == "gemini-2.5-flash" {
+		modelName = "gemini-3.6-flash"
 	}
 	modelName = strings.TrimPrefix(modelName, "models/")
 
