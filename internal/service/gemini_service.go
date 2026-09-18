@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -27,9 +28,14 @@ type geminiService struct {
 }
 
 func NewGeminiService(apiKey, modelName string) GeminiService {
-	if modelName == "" {
-		modelName = "gemini-1.5-flash"
+	// Prioritize GEMINI_MODEL environment variable, fallback to gemini-2.5-flash
+	if envModel := os.Getenv("GEMINI_MODEL"); envModel != "" {
+		modelName = envModel
+	} else if modelName == "" || modelName == "gemini-1.5-flash" {
+		modelName = "gemini-2.5-flash"
 	}
+	modelName = strings.TrimPrefix(modelName, "models/")
+
 	return &geminiService{
 		apiKey: apiKey,
 		model:  modelName,
@@ -135,7 +141,8 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", s.model, s.apiKey)
+	modelName := strings.TrimPrefix(s.model, "models/")
+	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, s.apiKey)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http request for gemini: %w", err)
