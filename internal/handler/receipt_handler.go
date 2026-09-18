@@ -40,7 +40,10 @@ func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
 
 	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, "Missing 'file' form field")
+		file, fileHeader, err = r.FormFile("receipt_image")
+	}
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "Missing 'file' or 'receipt_image' form field")
 		return
 	}
 	defer file.Close()
