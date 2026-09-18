@@ -1,9 +1,65 @@
-bin/
-tmp/
+# Environment & Secrets
 *.env
-*.exe
-*.test
+.env*
+!.env.example
+*.env.local
+*.env.*.local
 credentials*.json
 service-account*.json
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+id_rsa*
+
+# Binaries & Compiled Executables
+bin/
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+server
+
+# Temporary Files & Logs
+tmp/
+temp/
+*.log
+*.log.*
+logs/
+*.pid
+
+# Database & SQLite files
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+
+# IDE & Editor Settings
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS Specific
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+
+# Docker local overrides
+docker-compose.override.yml
