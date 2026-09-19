@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -27,14 +26,9 @@ type geminiService struct {
 	httpClient *http.Client
 }
 
-func NewGeminiService(apiKey, modelName string) GeminiService {
-	// Prioritize GEMINI_MODEL environment variable, fallback to gemini-3.6-flash
-	if envModel := os.Getenv("GEMINI_MODEL"); envModel != "" {
-		modelName = envModel
-	} else if modelName == "" || modelName == "gemini-1.5-flash" || modelName == "gemini-2.5-flash" {
-		modelName = "gemini-3.6-flash"
-	}
-	modelName = strings.TrimPrefix(modelName, "models/")
+func NewGeminiService(apiKey, _ string) GeminiService {
+	// Strictly hardcode to gemini-3.6-flash to bypass any stale environment variable caching
+	modelName := "gemini-3.6-flash"
 
 	return &geminiService{
 		apiKey: apiKey,
