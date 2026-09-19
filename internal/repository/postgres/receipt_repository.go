@@ -168,13 +168,16 @@ func (r *receiptRepository) UpdateReceiptOrder(ctx context.Context, userID, id u
 	if req.OrderDate != nil {
 		current.OrderDate = *req.OrderDate
 	}
+	if req.FolderID != nil {
+		current.FolderID = req.FolderID
+	}
 
 	query := `
 		UPDATE receipt_orders
-		SET vendor_name = $1, category = $2, description = $3, total_price = $4, order_date = $5::date
-		WHERE id = $6 AND user_id = $7
+		SET vendor_name = $1, category = $2, description = $3, total_price = $4, order_date = $5::date, folder_id = $6
+		WHERE id = $7 AND user_id = $8
 	`
-	res, err := r.db.ExecContext(ctx, query, current.VendorName, current.Category, current.Description, current.TotalPrice, current.OrderDate, id, userID)
+	res, err := r.db.ExecContext(ctx, query, current.VendorName, current.Category, current.Description, current.TotalPrice, current.OrderDate, current.FolderID, id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update receipt order: %w", err)
 	}

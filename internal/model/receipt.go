@@ -48,6 +48,7 @@ type UpdateReceiptRequest struct {
 	Description *string  `json:"description"`
 	TotalPrice  *float64 `json:"total_price"`
 	OrderDate   *string  `json:"order_date"`
+	FolderID    *string  `json:"folder_id"`
 }
 
 // CategoryExpenseSummary aggregates total spend for a given category.
