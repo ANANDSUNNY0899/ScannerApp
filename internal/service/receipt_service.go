@@ -52,10 +52,23 @@ func (s *receiptService) ExtractAndSaveReceipt(
 	fileSize int64,
 	fileName, mimeType string,
 ) (*model.ReceiptOrder, error) {
+	if fileReader == nil {
+		return nil, fmt.Errorf("file reader cannot be nil")
+	}
+	if s.geminiService == nil {
+		return nil, fmt.Errorf("gemini service is not configured")
+	}
+	if s.receiptRepo == nil {
+		return nil, fmt.Errorf("receipt repository is not initialized")
+	}
+
 	// Read full image bytes into memory for Gemini & S3 upload
 	imageBytes, err := io.ReadAll(fileReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read receipt image data: %w", err)
+	}
+	if len(imageBytes) == 0 {
+		return nil, fmt.Errorf("uploaded receipt image data is empty")
 	}
 
 	if mimeType == "" {
@@ -77,16 +90,32 @@ func (s *receiptService) ExtractAndSaveReceipt(
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract receipt with gemini: %w", err)
 	}
+	if extracted == nil {
+		return nil, fmt.Errorf("gemini extraction returned empty data")
+	}
+
+	vendorName := extracted.VendorName
+	if vendorName == "" {
+		vendorName = "Unknown Vendor"
+	}
+	category := extracted.Category
+	if category == "" {
+		category = "Other"
+	}
+	orderDate := extracted.OrderDate
+	if orderDate == "" {
+		orderDate = time.Now().Format("2006-01-02")
+	}
 
 	// 3. Persist into PostgreSQL receipt_orders table
 	order := &model.ReceiptOrder{
 		ID:          uuid.New(),
 		UserID:      userID,
-		VendorName:  extracted.VendorName,
-		Category:    extracted.Category,
+		VendorName:  vendorName,
+		Category:    category,
 		Description: extracted.Description,
 		TotalPrice:  extracted.TotalPrice,
-		OrderDate:   extracted.OrderDate,
+		OrderDate:   orderDate,
 		ImageURL:    imageURL,
 	}
 
@@ -131,16 +160,12 @@ func (s *receiptService) GenerateLedgerCSV(ctx context.Context, userID uuid.UUID
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
 
-	// Header row
+	// Header row: essential organic columns for business partners
 	header := []string{
-		"Receipt ID",
-		"Order Date",
-		"Vendor Name",
-		"Category",
+		"Date",
+		"Vendor",
 		"Description",
 		"Total Price",
-		"Image URL",
-		"Created At",
 	}
 	if err := writer.Write(header); err != nil {
 		return nil, err
@@ -149,14 +174,10 @@ func (s *receiptService) GenerateLedgerCSV(ctx context.Context, userID uuid.UUID
 	// Data rows
 	for _, order := range orders {
 		row := []string{
-			order.ID.String(),
 			order.OrderDate,
 			order.VendorName,
-			order.Category,
 			order.Description,
 			fmt.Sprintf("%.2f", order.TotalPrice),
-			order.ImageURL,
-			order.CreatedAt.UTC().Format(time.RFC3339),
 		}
 		if err := writer.Write(row); err != nil {
 			return nil, err

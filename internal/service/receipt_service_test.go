@@ -88,7 +88,7 @@ func TestGenerateLedgerCSV(t *testing.T) {
 	csvStr := string(csvBytes)
 
 	// Check Header
-	if !strings.Contains(csvStr, "Receipt ID,Order Date,Vendor Name,Category,Description,Total Price,Image URL,Created At") {
+	if !strings.Contains(csvStr, "Date,Vendor,Description,Total Price") {
 		t.Errorf("CSV missing expected header row. Got:\n%s", csvStr)
 	}
 

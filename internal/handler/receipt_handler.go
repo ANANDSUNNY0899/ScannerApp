@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -26,6 +27,13 @@ func NewReceiptHandler(receiptService service.ReceiptService) *ReceiptHandler {
 
 // Extract processes an uploaded receipt image via Google Gemini Multimodal and persists the record.
 func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("PANIC recovered in ReceiptHandler.Extract: %v", rec)
+			response.Error(w, http.StatusInternalServerError, fmt.Sprintf("Internal server error during receipt extraction: %v", rec))
+		}
+	}()
+
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
 		response.Error(w, http.StatusUnauthorized, "Unauthorized")
@@ -42,8 +50,8 @@ func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		file, fileHeader, err = r.FormFile("receipt_image")
 	}
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, "Missing 'file' or 'receipt_image' form field")
+	if err != nil || file == nil || fileHeader == nil {
+		response.Error(w, http.StatusBadRequest, "Missing or invalid 'file' form field")
 		return
 	}
 	defer file.Close()
