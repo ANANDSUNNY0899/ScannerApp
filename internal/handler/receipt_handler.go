@@ -61,6 +61,11 @@ func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
 		mimeType = "image/jpeg"
 	}
 
+	var folderIDPtr *string
+	if folderID := r.FormValue("folder_id"); folderID != "" {
+		folderIDPtr = &folderID
+	}
+
 	order, err := h.receiptService.ExtractAndSaveReceipt(
 		r.Context(),
 		userID,
@@ -68,6 +73,7 @@ func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
 		fileHeader.Size,
 		fileHeader.Filename,
 		mimeType,
+		folderIDPtr,
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "Failed to extract and save receipt: "+err.Error())
@@ -90,6 +96,7 @@ func (h *ReceiptHandler) List(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 
 	filter := model.ReceiptFilter{
+		FolderID:  q.Get("folder_id"),
 		Vendor:    q.Get("vendor"),
 		Category:  q.Get("category"),
 		StartDate: q.Get("start_date"),
@@ -207,8 +214,9 @@ func (h *ReceiptHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	startDate := q.Get("start_date")
 	endDate := q.Get("end_date")
+	folderID := q.Get("folder_id")
 
-	summary, err := h.receiptService.GetSummary(r.Context(), userID, startDate, endDate)
+	summary, err := h.receiptService.GetSummary(r.Context(), userID, startDate, endDate, folderID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "Failed to compute receipt summary: "+err.Error())
 		return
@@ -227,6 +235,7 @@ func (h *ReceiptHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	filter := model.ReceiptFilter{
+		FolderID:  q.Get("folder_id"),
 		Vendor:    q.Get("vendor"),
 		Category:  q.Get("category"),
 		StartDate: q.Get("start_date"),

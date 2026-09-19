@@ -16,6 +16,7 @@ type ReceiptOrder struct {
 	TotalPrice  float64   `json:"total_price" db:"total_price"`
 	OrderDate   string    `json:"order_date" db:"order_date"` // YYYY-MM-DD
 	ImageURL    string    `json:"image_url" db:"image_url"`
+	FolderID    *string   `json:"folder_id" db:"folder_id"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
@@ -31,6 +32,7 @@ type ReceiptExtractedData struct {
 
 // ReceiptFilter encapsulates query filters for listing and Excel/CSV ledger export.
 type ReceiptFilter struct {
+	FolderID  string `json:"folder_id"`
 	Vendor    string `json:"vendor"`
 	Category  string `json:"category"`
 	StartDate string `json:"start_date"` // YYYY-MM-DD

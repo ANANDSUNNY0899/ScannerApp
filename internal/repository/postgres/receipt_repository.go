@@ -21,7 +21,7 @@ type ReceiptRepository interface {
 	ListReceiptOrders(ctx context.Context, userID uuid.UUID, filter model.ReceiptFilter) ([]*model.ReceiptOrder, error)
 	UpdateReceiptOrder(ctx context.Context, userID, id uuid.UUID, req *model.UpdateReceiptRequest) (*model.ReceiptOrder, error)
 	DeleteReceiptOrder(ctx context.Context, userID, id uuid.UUID) error
-	GetReceiptSummary(ctx context.Context, userID uuid.UUID, startDate, endDate string) (*model.ReceiptSummary, error)
+	GetReceiptSummary(ctx context.Context, userID uuid.UUID, startDate, endDate, folderID string) (*model.ReceiptSummary, error)
 }
 
 type receiptRepository struct {
@@ -35,9 +35,9 @@ func NewReceiptRepository(db *DB) ReceiptRepository {
 func (r *receiptRepository) CreateReceiptOrder(ctx context.Context, order *model.ReceiptOrder) error {
 	query := `
 		INSERT INTO receipt_orders (
-			id, user_id, vendor_name, category, description, total_price, order_date, image_url, created_at
+			id, user_id, vendor_name, category, description, total_price, order_date, image_url, folder_id, created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()
 		) RETURNING created_at
 	`
 	if order.ID == uuid.Nil {
@@ -55,6 +55,7 @@ func (r *receiptRepository) CreateReceiptOrder(ctx context.Context, order *model
 		order.TotalPrice,
 		order.OrderDate,
 		order.ImageURL,
+		order.FolderID,
 	).Scan(&order.CreatedAt)
 }
 
@@ -62,7 +63,7 @@ func (r *receiptRepository) GetReceiptOrderByID(ctx context.Context, userID, id 
 	query := `
 		SELECT id, user_id, vendor_name, category, description, total_price, 
 		       COALESCE(TO_CHAR(order_date, 'YYYY-MM-DD'), '') AS order_date, 
-		       image_url, created_at
+		       image_url, folder_id, created_at
 		FROM receipt_orders
 		WHERE id = $1 AND user_id = $2
 	`
@@ -82,13 +83,19 @@ func (r *receiptRepository) ListReceiptOrders(ctx context.Context, userID uuid.U
 	queryBuilder.WriteString(`
 		SELECT id, user_id, vendor_name, category, description, total_price, 
 		       COALESCE(TO_CHAR(order_date, 'YYYY-MM-DD'), '') AS order_date, 
-		       image_url, created_at
+		       image_url, folder_id, created_at
 		FROM receipt_orders
 		WHERE user_id = $1
 	`)
 
 	args := []interface{}{userID}
 	argIdx := 2
+
+	if filter.FolderID != "" {
+		queryBuilder.WriteString(fmt.Sprintf(" AND folder_id = $%d", argIdx))
+		args = append(args, filter.FolderID)
+		argIdx++
+	}
 
 	if filter.Category != "" {
 		queryBuilder.WriteString(fmt.Sprintf(" AND category ILIKE $%d", argIdx))
@@ -129,10 +136,13 @@ func (r *receiptRepository) ListReceiptOrders(ctx context.Context, userID uuid.U
 		args = append(args, filter.Offset)
 	}
 
-	var orders []*model.ReceiptOrder
+	orders := make([]*model.ReceiptOrder, 0)
 	err := r.db.SelectContext(ctx, &orders, queryBuilder.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list receipt orders: %w", err)
+	}
+	if orders == nil {
+		orders = make([]*model.ReceiptOrder, 0)
 	}
 	return orders, nil
 }
@@ -189,7 +199,7 @@ func (r *receiptRepository) DeleteReceiptOrder(ctx context.Context, userID, id u
 	return nil
 }
 
-func (r *receiptRepository) GetReceiptSummary(ctx context.Context, userID uuid.UUID, startDate, endDate string) (*model.ReceiptSummary, error) {
+func (r *receiptRepository) GetReceiptSummary(ctx context.Context, userID uuid.UUID, startDate, endDate, folderID string) (*model.ReceiptSummary, error) {
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(`
 		SELECT COALESCE(category, 'Uncategorized') AS category, 
@@ -201,6 +211,12 @@ func (r *receiptRepository) GetReceiptSummary(ctx context.Context, userID uuid.U
 
 	args := []interface{}{userID}
 	argIdx := 2
+
+	if folderID != "" {
+		queryBuilder.WriteString(fmt.Sprintf(" AND folder_id = $%d", argIdx))
+		args = append(args, folderID)
+		argIdx++
+	}
 
 	if startDate != "" {
 		queryBuilder.WriteString(fmt.Sprintf(" AND order_date >= $%d::date", argIdx))
@@ -216,10 +232,13 @@ func (r *receiptRepository) GetReceiptSummary(ctx context.Context, userID uuid.U
 
 	queryBuilder.WriteString(" GROUP BY category ORDER BY total_spend DESC")
 
-	var catSummaries []model.CategoryExpenseSummary
+	catSummaries := make([]model.CategoryExpenseSummary, 0)
 	err := r.db.SelectContext(ctx, &catSummaries, queryBuilder.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query receipt summary: %w", err)
+	}
+	if catSummaries == nil {
+		catSummaries = make([]model.CategoryExpenseSummary, 0)
 	}
 
 	var totalSpend float64

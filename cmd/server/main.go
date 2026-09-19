@@ -71,6 +71,7 @@ func main() {
 	userRepo := postgres.NewUserRepository(db)
 	syncRepo := postgres.NewSyncRepository(db)
 	receiptRepo := postgres.NewReceiptRepository(db)
+	folderRepo := postgres.NewFolderRepository(db)
 	limiterRepo := redis.NewLimiterRepository(rdb)
 
 	// Services
@@ -80,6 +81,7 @@ func main() {
 	billingService, _ := service.NewPlayBillingService(context.Background())
 	geminiService := service.NewGeminiService(cfg.GeminiAPIKey, cfg.GeminiModel)
 	receiptService := service.NewReceiptService(receiptRepo, geminiService, s3Storage, cfg.S3Bucket)
+	folderService := service.NewFolderService(folderRepo)
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authService)
@@ -87,6 +89,7 @@ func main() {
 	ocrHandler := handler.NewOCRHandler(ocrService, userRepo)
 	subscriptionHandler := handler.NewSubscriptionHandler(billingService, userRepo)
 	receiptHandler := handler.NewReceiptHandler(receiptService)
+	folderHandler := handler.NewFolderHandler(folderService)
 
 	// Router Setup
 	r := mux.NewRouter()
@@ -129,6 +132,12 @@ func main() {
 
 	// Subscription Routes
 	protected.HandleFunc("/subscriptions/verify", subscriptionHandler.Verify).Methods(http.MethodPost)
+
+	// Workspace Folder Routes
+	protected.HandleFunc("/folders", folderHandler.Create).Methods(http.MethodPost)
+	protected.HandleFunc("/folders", folderHandler.List).Methods(http.MethodGet)
+	protected.HandleFunc("/folders/{id}", folderHandler.GetByID).Methods(http.MethodGet)
+	protected.HandleFunc("/folders/{id}", folderHandler.Delete).Methods(http.MethodDelete)
 
 	// Universal Multi-Tenant Receipt Extraction & Ledger Routes
 	protected.HandleFunc("/receipts/extract", receiptHandler.Extract).Methods(http.MethodPost)

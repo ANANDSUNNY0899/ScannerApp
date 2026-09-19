@@ -46,7 +46,7 @@ func (m *mockReceiptRepo) DeleteReceiptOrder(ctx context.Context, userID, id uui
 	return nil
 }
 
-func (m *mockReceiptRepo) GetReceiptSummary(ctx context.Context, userID uuid.UUID, startDate, endDate string) (*model.ReceiptSummary, error) {
+func (m *mockReceiptRepo) GetReceiptSummary(ctx context.Context, userID uuid.UUID, startDate, endDate, folderID string) (*model.ReceiptSummary, error) {
 	return &model.ReceiptSummary{}, nil
 }
 

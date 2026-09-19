@@ -15,12 +15,12 @@ import (
 )
 
 type ReceiptService interface {
-	ExtractAndSaveReceipt(ctx context.Context, userID uuid.UUID, fileReader io.Reader, fileSize int64, fileName, mimeType string) (*model.ReceiptOrder, error)
+	ExtractAndSaveReceipt(ctx context.Context, userID uuid.UUID, fileReader io.Reader, fileSize int64, fileName, mimeType string, folderID *string) (*model.ReceiptOrder, error)
 	GetReceipt(ctx context.Context, userID, id uuid.UUID) (*model.ReceiptOrder, error)
 	ListReceipts(ctx context.Context, userID uuid.UUID, filter model.ReceiptFilter) ([]*model.ReceiptOrder, error)
 	UpdateReceipt(ctx context.Context, userID, id uuid.UUID, req *model.UpdateReceiptRequest) (*model.ReceiptOrder, error)
 	DeleteReceipt(ctx context.Context, userID, id uuid.UUID) error
-	GetSummary(ctx context.Context, userID uuid.UUID, startDate, endDate string) (*model.ReceiptSummary, error)
+	GetSummary(ctx context.Context, userID uuid.UUID, startDate, endDate, folderID string) (*model.ReceiptSummary, error)
 	GenerateLedgerCSV(ctx context.Context, userID uuid.UUID, filter model.ReceiptFilter) ([]byte, error)
 }
 
@@ -51,6 +51,7 @@ func (s *receiptService) ExtractAndSaveReceipt(
 	fileReader io.Reader,
 	fileSize int64,
 	fileName, mimeType string,
+	folderID *string,
 ) (*model.ReceiptOrder, error) {
 	if fileReader == nil {
 		return nil, fmt.Errorf("file reader cannot be nil")
@@ -117,6 +118,7 @@ func (s *receiptService) ExtractAndSaveReceipt(
 		TotalPrice:  extracted.TotalPrice,
 		OrderDate:   orderDate,
 		ImageURL:    imageURL,
+		FolderID:    folderID,
 	}
 
 	if err := s.receiptRepo.CreateReceiptOrder(ctx, order); err != nil {
@@ -142,8 +144,8 @@ func (s *receiptService) DeleteReceipt(ctx context.Context, userID, id uuid.UUID
 	return s.receiptRepo.DeleteReceiptOrder(ctx, userID, id)
 }
 
-func (s *receiptService) GetSummary(ctx context.Context, userID uuid.UUID, startDate, endDate string) (*model.ReceiptSummary, error) {
-	return s.receiptRepo.GetReceiptSummary(ctx, userID, startDate, endDate)
+func (s *receiptService) GetSummary(ctx context.Context, userID uuid.UUID, startDate, endDate, folderID string) (*model.ReceiptSummary, error) {
+	return s.receiptRepo.GetReceiptSummary(ctx, userID, startDate, endDate, folderID)
 }
 
 // GenerateLedgerCSV generates a clean CSV ledger stream compatible with Microsoft Excel and Google Sheets
