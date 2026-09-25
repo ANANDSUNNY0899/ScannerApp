@@ -198,13 +198,27 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 	return &extracted, nil
 }
 
-// cleanJSONResponse strips markdown backticks and wraps if needed
+// cleanJSONResponse strips markdown backticks, conversational preamble/postamble, and isolates the JSON object
 func cleanJSONResponse(text string) string {
 	trimmed := strings.TrimSpace(text)
-	// Strip ```json ... ``` or ``` ... ```
-	re := regexp.MustCompile("(?s)^```(?:json)?\\s*(.*)\\s*```$")
+	// Remove markdown code fences if present
+	trimmed = strings.TrimPrefix(trimmed, "```json")
+	trimmed = strings.TrimPrefix(trimmed, "```JSON")
+	trimmed = strings.TrimPrefix(trimmed, "```")
+	trimmed = strings.TrimSuffix(trimmed, "```")
+	trimmed = strings.TrimSpace(trimmed)
+
+	// If there are still backticks (e.g. enclosed within text), strip regex
+	re := regexp.MustCompile("(?s)```(?:json)?\\s*(.*?)\\s*```")
 	if matches := re.FindStringSubmatch(trimmed); len(matches) > 1 {
 		trimmed = strings.TrimSpace(matches[1])
+	}
+
+	// Strictly isolate between first '{' and last '}'
+	firstBrace := strings.Index(trimmed, "{")
+	lastBrace := strings.LastIndex(trimmed, "}")
+	if firstBrace != -1 && lastBrace != -1 && lastBrace >= firstBrace {
+		trimmed = trimmed[firstBrace : lastBrace+1]
 	}
 	return trimmed
 }
