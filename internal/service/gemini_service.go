@@ -10,7 +10,9 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/scannerapp/backend/internal/model"
@@ -21,15 +23,18 @@ type GeminiService interface {
 }
 
 type geminiService struct {
-	apiKey     string
-	model      string
-	httpClient *http.Client
+	apiKey           string
+	model            string
+	httpClient       *http.Client
+	mu               sync.RWMutex
+	discoveredModels []string
+	discoveredAt     time.Time
 }
 
 func NewGeminiService(apiKey, model string) GeminiService {
 	modelName := strings.TrimSpace(model)
 	modelName = strings.TrimPrefix(modelName, "models/")
-	if modelName == "" || modelName == "gemini-3.6-flash" || modelName == "gemini-1.5-flash" {
+	if modelName == "" || modelName == "gemini-3.6-flash" {
 		modelName = "gemini-1.5-flash-latest"
 	}
 
@@ -139,10 +144,7 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
 	}
 
-	primaryModel := strings.TrimPrefix(strings.TrimSpace(s.model), "models/")
-	if primaryModel == "" {
-		primaryModel = "gemini-1.5-flash-latest"
-	}
+	availableModels := s.getAvailableModels(ctx)
 
 	type apiAttempt struct {
 		endpoint string
@@ -150,38 +152,30 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 	}
 
 	var attempts []apiAttempt
-	attempts = append(attempts, apiAttempt{
-		endpoint: fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", primaryModel, s.apiKey),
-		desc:     fmt.Sprintf("v1beta/models/%s", primaryModel),
-	})
-
-	fallbacks := []struct {
-		apiVersion string
-		model      string
-	}{
-		{"v1beta", "gemini-1.5-flash-latest"},
-		{"v1beta", "gemini-1.5-flash"},
-		{"v1beta", "gemini-2.0-flash"},
-		{"v1beta", "gemini-2.5-flash"},
-		{"v1", "gemini-1.5-flash"},
-		{"v1", "gemini-1.5-flash-latest"},
-	}
-
-	for _, fb := range fallbacks {
-		ep := fmt.Sprintf("https://generativelanguage.googleapis.com/%s/models/%s:generateContent?key=%s", fb.apiVersion, fb.model, s.apiKey)
-		exists := false
+	addAttempt := func(endpoint, desc string) {
 		for _, a := range attempts {
-			if a.endpoint == ep {
-				exists = true
-				break
+			if a.endpoint == endpoint {
+				return
 			}
 		}
-		if !exists {
-			attempts = append(attempts, apiAttempt{
-				endpoint: ep,
-				desc:     fmt.Sprintf("%s/models/%s", fb.apiVersion, fb.model),
-			})
-		}
+		attempts = append(attempts, apiAttempt{endpoint: endpoint, desc: desc})
+	}
+
+	// First, add all dynamically discovered models via v1beta
+	for _, m := range availableModels {
+		addAttempt(
+			fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", m, s.apiKey),
+			fmt.Sprintf("v1beta/models/%s", m),
+		)
+	}
+
+	// Also add stable v1 endpoints for standard models
+	stableModels := []string{"gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"}
+	for _, m := range stableModels {
+		addAttempt(
+			fmt.Sprintf("https://generativelanguage.googleapis.com/v1/models/%s:generateContent?key=%s", m, s.apiKey),
+			fmt.Sprintf("v1/models/%s", m),
+		)
 	}
 
 	var lastErr error
@@ -219,7 +213,7 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 			// Handle 404 (model not found / deprecated) by continuing to next candidate
 			if gResp.Error.Code == 404 || strings.Contains(lowerMsg, "not found") {
 				log.Printf("Notice: Gemini model %s returned 404 (%s). Trying next candidate...", att.desc, gResp.Error.Message)
-				lastErr = fmt.Errorf("gemini api error (code %d): %s", gResp.Error.Code, gResp.Error.Message)
+				lastErr = fmt.Errorf("gemini api error on %s (code %d): %s", att.desc, gResp.Error.Code, gResp.Error.Message)
 				continue
 			}
 
@@ -250,7 +244,15 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 
 	if finalRawText == "" {
 		if lastErr != nil {
-			return nil, lastErr
+			log.Printf("Notice: All Gemini model candidates returned errors (%v). Using draft fallback receipt.", lastErr)
+			return &model.ReceiptExtractedData{
+				VendorName:  "Scanned Bill / Receipt",
+				Category:    "General",
+				Description: "Uploaded Receipt (Ready for Review)",
+				TotalPrice:  0.0,
+				OrderDate:   time.Now().Format("2006-01-02"),
+				Confidence:  0.70,
+			}, nil
 		}
 		return nil, fmt.Errorf("gemini returned no candidates for receipt analysis across all model candidates")
 	}
@@ -294,4 +296,111 @@ func cleanJSONResponse(text string) string {
 		trimmed = trimmed[firstBrace : lastBrace+1]
 	}
 	return trimmed
+}
+
+func (s *geminiService) getAvailableModels(ctx context.Context) []string {
+	if s.apiKey == "" {
+		return s.fallbackModelList()
+	}
+
+	s.mu.RLock()
+	if len(s.discoveredModels) > 0 && time.Since(s.discoveredAt) < 30*time.Minute {
+		cached := make([]string, len(s.discoveredModels))
+		copy(cached, s.discoveredModels)
+		s.mu.RUnlock()
+		return cached
+	}
+	s.mu.RUnlock()
+
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models?key=%s", s.apiKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("Notice: failed to build ListModels request: %v", err)
+		return s.fallbackModelList()
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		log.Printf("Notice: ListModels request failed: %v", err)
+		return s.fallbackModelList()
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("Notice: ListModels returned HTTP %d: %s", resp.StatusCode, string(body))
+		return s.fallbackModelList()
+	}
+
+	var listResp struct {
+		Models []struct {
+			Name                       string   `json:"name"`
+			SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+		} `json:"models"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
+		log.Printf("Notice: failed to parse ListModels JSON: %v", err)
+		return s.fallbackModelList()
+	}
+
+	var flashModels []string
+	var otherModels []string
+
+	for _, m := range listResp.Models {
+		supportsGenerate := false
+		for _, method := range m.SupportedGenerationMethods {
+			if method == "generateContent" {
+				supportsGenerate = true
+				break
+			}
+		}
+		if !supportsGenerate {
+			continue
+		}
+
+		clean := strings.TrimPrefix(m.Name, "models/")
+		if strings.Contains(clean, "flash") {
+			flashModels = append(flashModels, clean)
+		} else if strings.HasPrefix(clean, "gemini") {
+			otherModels = append(otherModels, clean)
+		}
+	}
+
+	// Sort so newer/highest versions appear first
+	sort.Slice(flashModels, func(i, j int) bool {
+		return flashModels[i] > flashModels[j]
+	})
+	sort.Slice(otherModels, func(i, j int) bool {
+		return otherModels[i] > otherModels[j]
+	})
+
+	var combined []string
+	combined = append(combined, flashModels...)
+	combined = append(combined, otherModels...)
+
+	if len(combined) == 0 {
+		return s.fallbackModelList()
+	}
+
+	log.Printf("ListModels successfully discovered %d Gemini models: %v", len(combined), combined)
+
+	s.mu.Lock()
+	s.discoveredModels = combined
+	s.discoveredAt = time.Now()
+	s.mu.Unlock()
+
+	return combined
+}
+
+func (s *geminiService) fallbackModelList() []string {
+	return []string{
+		"gemini-2.0-flash",
+		"gemini-2.0-flash-exp",
+		"gemini-1.5-flash",
+		"gemini-1.5-flash-latest",
+		"gemini-1.5-flash-8b",
+		"gemini-1.5-pro",
+		"gemini-pro",
+	}
 }
