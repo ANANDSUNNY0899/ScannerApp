@@ -28,8 +28,9 @@ type geminiService struct {
 
 func NewGeminiService(apiKey, model string) GeminiService {
 	modelName := strings.TrimSpace(model)
-	if modelName == "" || modelName == "gemini-3.6-flash" {
-		modelName = "gemini-1.5-flash"
+	modelName = strings.TrimPrefix(modelName, "models/")
+	if modelName == "" || modelName == "gemini-3.6-flash" || modelName == "gemini-1.5-flash" {
+		modelName = "gemini-1.5-flash-latest"
 	}
 
 	return &geminiService{
@@ -138,51 +139,123 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 		return nil, fmt.Errorf("failed to marshal gemini request: %w", err)
 	}
 
-	modelName := strings.TrimPrefix(s.model, "models/")
-	endpoint := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, s.apiKey)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create http request for gemini: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("gemini api request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read gemini response: %w", err)
+	primaryModel := strings.TrimPrefix(strings.TrimSpace(s.model), "models/")
+	if primaryModel == "" {
+		primaryModel = "gemini-1.5-flash-latest"
 	}
 
-	var gResp geminiResponse
-	if err := json.Unmarshal(bodyBytes, &gResp); err != nil {
-		return nil, fmt.Errorf("failed to parse gemini response: %w (body: %s)", err, string(bodyBytes))
+	type apiAttempt struct {
+		endpoint string
+		desc     string
 	}
 
-	if gResp.Error != nil {
-		lowerMsg := strings.ToLower(gResp.Error.Message)
-		if gResp.Error.Code == 429 || strings.Contains(lowerMsg, "prepayment") || strings.Contains(lowerMsg, "quota") || strings.Contains(lowerMsg, "credit") {
-			log.Printf("Notice: Gemini API returned 429 (%s). Using fallback extraction to prevent blocking receipt workflow.", gResp.Error.Message)
-			return &model.ReceiptExtractedData{
-				VendorName:  "Store Receipt",
-				Category:    "Retail",
-				Description: "Scanned Receipt (Review & Edit line items)",
-				TotalPrice:  35.50,
-				OrderDate:   time.Now().Format("2006-01-02"),
-				Confidence:  0.85,
-			}, nil
+	var attempts []apiAttempt
+	attempts = append(attempts, apiAttempt{
+		endpoint: fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", primaryModel, s.apiKey),
+		desc:     fmt.Sprintf("v1beta/models/%s", primaryModel),
+	})
+
+	fallbacks := []struct {
+		apiVersion string
+		model      string
+	}{
+		{"v1beta", "gemini-1.5-flash-latest"},
+		{"v1beta", "gemini-1.5-flash"},
+		{"v1beta", "gemini-2.0-flash"},
+		{"v1beta", "gemini-2.5-flash"},
+		{"v1", "gemini-1.5-flash"},
+		{"v1", "gemini-1.5-flash-latest"},
+	}
+
+	for _, fb := range fallbacks {
+		ep := fmt.Sprintf("https://generativelanguage.googleapis.com/%s/models/%s:generateContent?key=%s", fb.apiVersion, fb.model, s.apiKey)
+		exists := false
+		for _, a := range attempts {
+			if a.endpoint == ep {
+				exists = true
+				break
+			}
 		}
-		return nil, fmt.Errorf("gemini api error (code %d): %s", gResp.Error.Code, gResp.Error.Message)
+		if !exists {
+			attempts = append(attempts, apiAttempt{
+				endpoint: ep,
+				desc:     fmt.Sprintf("%s/models/%s", fb.apiVersion, fb.model),
+			})
+		}
 	}
 
-	if len(gResp.Candidates) == 0 || len(gResp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("gemini returned no candidates for receipt analysis")
+	var lastErr error
+	var finalRawText string
+
+	for _, att := range attempts {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, att.endpoint, bytes.NewReader(jsonBytes))
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create http request for %s: %w", att.desc, err)
+			continue
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := s.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("gemini api request failed for %s: %w", att.desc, err)
+			continue
+		}
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read gemini response from %s: %w", att.desc, err)
+			continue
+		}
+
+		var gResp geminiResponse
+		if err := json.Unmarshal(bodyBytes, &gResp); err != nil {
+			lastErr = fmt.Errorf("failed to parse gemini response from %s: %w (body: %s)", att.desc, err, string(bodyBytes))
+			continue
+		}
+
+		if gResp.Error != nil {
+			lowerMsg := strings.ToLower(gResp.Error.Message)
+			// Handle 404 (model not found / deprecated) by continuing to next candidate
+			if gResp.Error.Code == 404 || strings.Contains(lowerMsg, "not found") {
+				log.Printf("Notice: Gemini model %s returned 404 (%s). Trying next candidate...", att.desc, gResp.Error.Message)
+				lastErr = fmt.Errorf("gemini api error (code %d): %s", gResp.Error.Code, gResp.Error.Message)
+				continue
+			}
+
+			// Handle 429 quota exhaustion gracefully
+			if gResp.Error.Code == 429 || strings.Contains(lowerMsg, "prepayment") || strings.Contains(lowerMsg, "quota") || strings.Contains(lowerMsg, "credit") {
+				log.Printf("Notice: Gemini API returned 429 (%s). Using fallback extraction to prevent blocking receipt workflow.", gResp.Error.Message)
+				return &model.ReceiptExtractedData{
+					VendorName:  "Store Receipt",
+					Category:    "Retail",
+					Description: "Scanned Receipt (Review & Edit line items)",
+					TotalPrice:  35.50,
+					OrderDate:   time.Now().Format("2006-01-02"),
+					Confidence:  0.85,
+				}, nil
+			}
+
+			return nil, fmt.Errorf("gemini api error on %s (code %d): %s", att.desc, gResp.Error.Code, gResp.Error.Message)
+		}
+
+		if len(gResp.Candidates) == 0 || len(gResp.Candidates[0].Content.Parts) == 0 {
+			lastErr = fmt.Errorf("gemini returned no candidates for %s", att.desc)
+			continue
+		}
+
+		finalRawText = gResp.Candidates[0].Content.Parts[0].Text
+		break
 	}
 
-	rawText := gResp.Candidates[0].Content.Parts[0].Text
+	if finalRawText == "" {
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, fmt.Errorf("gemini returned no candidates for receipt analysis across all model candidates")
+	}
+
+	rawText := finalRawText
 	cleanJSON := cleanJSONResponse(rawText)
 
 	var extracted model.ReceiptExtractedData
