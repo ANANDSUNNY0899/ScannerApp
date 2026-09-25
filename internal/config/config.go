@@ -37,7 +37,7 @@ func LoadConfig() *Config {
 		S3Bucket:     getEnv("S3_BUCKET", "scans-bucket"),
 		S3UseSSL:     getEnvAsBool("S3_USE_SSL", false),
 		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
-		GeminiModel:  getEnv("GEMINI_MODEL", "gemini-3.6-flash"),
+		GeminiModel:  getEnv("GEMINI_MODEL", "gemini-1.5-flash"),
 	}
 }
 

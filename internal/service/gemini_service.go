@@ -26,9 +26,11 @@ type geminiService struct {
 	httpClient *http.Client
 }
 
-func NewGeminiService(apiKey, _ string) GeminiService {
-	// Strictly hardcode to gemini-3.6-flash to bypass any stale environment variable caching
-	modelName := "gemini-3.6-flash"
+func NewGeminiService(apiKey, model string) GeminiService {
+	modelName := strings.TrimSpace(model)
+	if modelName == "" || modelName == "gemini-3.6-flash" {
+		modelName = "gemini-1.5-flash"
+	}
 
 	return &geminiService{
 		apiKey: apiKey,
@@ -88,7 +90,8 @@ Return ONLY a valid JSON object with the following fields:
   "order_date": "YYYY-MM-DD"
 }
 If order_date is missing or unreadable, use today's date in YYYY-MM-DD format.
-total_price must be a decimal number without currency symbols.`
+total_price must be a decimal number without currency symbols.
+Return ONLY raw JSON. Do not include markdown formatting, backticks, or code fences.`
 
 func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byte, mimeType string) (*model.ReceiptExtractedData, error) {
 	// Fallback mock mode when GEMINI_API_KEY is not configured
