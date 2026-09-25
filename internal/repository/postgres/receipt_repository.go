@@ -44,7 +44,7 @@ func (r *receiptRepository) CreateReceiptOrder(ctx context.Context, order *model
 		order.ID = uuid.New()
 	}
 
-	return r.db.QueryRowContext(
+	err := r.db.QueryRowContext(
 		ctx,
 		query,
 		order.ID,
@@ -57,6 +57,27 @@ func (r *receiptRepository) CreateReceiptOrder(ctx context.Context, order *model
 		order.ImageURL,
 		order.FolderID,
 	).Scan(&order.CreatedAt)
+
+	// If foreign key constraint violation on folder_id (e.g. folder hasn't synced yet from client),
+	// retry without the folder foreign key so the user's receipt is never lost or dropped.
+	if err != nil && order.FolderID != nil && strings.Contains(strings.ToLower(err.Error()), "folder_id") {
+		order.FolderID = nil
+		return r.db.QueryRowContext(
+			ctx,
+			query,
+			order.ID,
+			order.UserID,
+			order.VendorName,
+			order.Category,
+			order.Description,
+			order.TotalPrice,
+			order.OrderDate,
+			order.ImageURL,
+			nil,
+		).Scan(&order.CreatedAt)
+	}
+
+	return err
 }
 
 func (r *receiptRepository) GetReceiptOrderByID(ctx context.Context, userID, id uuid.UUID) (*model.ReceiptOrder, error) {

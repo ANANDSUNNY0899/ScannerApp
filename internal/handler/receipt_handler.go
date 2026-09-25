@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,8 +41,8 @@ func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 20 MB max file upload
-	if err := r.ParseMultipartForm(20 << 20); err != nil {
+	// 25 MB max file upload
+	if err := r.ParseMultipartForm(25 << 20); err != nil {
 		response.Error(w, http.StatusBadRequest, "Invalid multipart form: "+err.Error())
 		return
 	}
@@ -56,13 +57,29 @@ func (h *ReceiptHandler) Extract(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	if fileHeader.Size <= 0 {
+		response.Error(w, http.StatusBadRequest, "Uploaded file is empty (0 bytes)")
+		return
+	}
+	if fileHeader.Size > 25*1024*1024 {
+		response.Error(w, http.StatusBadRequest, "Uploaded file exceeds maximum limit of 25MB")
+		return
+	}
+
 	mimeType := fileHeader.Header.Get("Content-Type")
 	if mimeType == "" {
 		mimeType = "image/jpeg"
 	}
 
+	folderID := strings.TrimSpace(r.FormValue("folder_id"))
+	if folderID == "" && r.MultipartForm != nil {
+		if vals := r.MultipartForm.Value["folder_id"]; len(vals) > 0 {
+			folderID = strings.TrimSpace(vals[0])
+		}
+	}
+
 	var folderIDPtr *string
-	if folderID := r.FormValue("folder_id"); folderID != "" {
+	if folderID != "" && folderID != "null" && folderID != "undefined" {
 		folderIDPtr = &folderID
 	}
 
