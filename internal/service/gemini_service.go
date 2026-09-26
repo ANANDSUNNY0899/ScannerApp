@@ -201,8 +201,8 @@ func (s *geminiService) extractWithSDK(ctx context.Context, imageBytes []byte, m
 				continue
 			}
 			if strings.Contains(lower, "429") || strings.Contains(lower, "quota") {
-				log.Printf("Notice: genai SDK model '%s' returned 429 quota limit.", cleanName)
-				return "", err
+				log.Printf("Notice: genai SDK model '%s' returned 429 quota limit. Trying next model...", cleanName)
+				continue
 			}
 			log.Printf("Notice: genai SDK model '%s' returned error: %v. Trying next model...", cleanName, err)
 			continue
@@ -325,7 +325,8 @@ func (s *geminiService) extractWithREST(ctx context.Context, imageBytes []byte, 
 				continue
 			}
 			if gResp.Error.Code == 429 {
-				return "", lastErr
+				log.Printf("Notice: REST model %s returned 429 quota limit. Trying next model...", cleanName)
+				continue
 			}
 			continue
 		}
@@ -346,6 +347,10 @@ func (s *geminiService) buildCandidateModels(ctx context.Context) []string {
 		if clean == "" {
 			return
 		}
+		lower := strings.ToLower(clean)
+		if strings.Contains(lower, "tts") || strings.Contains(lower, "audio") || strings.Contains(lower, "embed") || strings.Contains(lower, "search") || strings.Contains(lower, "imagen") {
+			return
+		}
 		for _, existing := range candidates {
 			if existing == clean {
 				return
@@ -354,28 +359,28 @@ func (s *geminiService) buildCandidateModels(ctx context.Context) []string {
 		candidates = append(candidates, clean)
 	}
 
-	// 1. Configured model first
+	// 1. High-quota stable multimodal vision models first!
+	stableVisionModels := []string{
+		"gemini-1.5-flash",
+		"gemini-2.0-flash",
+		"gemini-1.5-flash-latest",
+		"gemini-1.5-flash-8b",
+		"gemini-1.5-pro",
+		"gemini-2.5-flash",
+		"gemini-pro",
+	}
+	for _, m := range stableVisionModels {
+		add(m)
+	}
+
+	// 2. Configured model
 	if s.model != "" {
 		add(s.model)
 	}
 
-	// 2. Dynamically discovered models from ListModels
+	// 3. Dynamically discovered vision models from ListModels
 	discovered := s.getAvailableModels(ctx)
 	for _, m := range discovered {
-		add(m)
-	}
-
-	// 3. Known stable fallbacks
-	fallbacks := []string{
-		"gemini-1.5-flash",
-		"gemini-2.0-flash",
-		"gemini-2.5-flash",
-		"gemini-1.5-flash-latest",
-		"gemini-1.5-flash-8b",
-		"gemini-1.5-pro",
-		"gemini-pro",
-	}
-	for _, m := range fallbacks {
 		add(m)
 	}
 
@@ -409,6 +414,11 @@ func (s *geminiService) getAvailableModels(ctx context.Context) []string {
 				break
 			}
 			clean := strings.TrimPrefix(m.Name, "models/")
+			lower := strings.ToLower(clean)
+			// Exclude non-vision/multimodal models (TTS, audio-only, embeddings)
+			if strings.Contains(lower, "tts") || strings.Contains(lower, "audio") || strings.Contains(lower, "embed") || strings.Contains(lower, "search") || strings.Contains(lower, "imagen") {
+				continue
+			}
 			supportsGenerate := false
 			for _, method := range m.SupportedGenerationMethods {
 				if method == "generateContent" {
@@ -420,9 +430,9 @@ func (s *geminiService) getAvailableModels(ctx context.Context) []string {
 				continue
 			}
 
-			if strings.Contains(clean, "flash") {
+			if strings.Contains(lower, "flash") {
 				flashModels = append(flashModels, clean)
-			} else if strings.HasPrefix(clean, "gemini") {
+			} else if strings.HasPrefix(lower, "gemini") {
 				otherModels = append(otherModels, clean)
 			}
 		}
