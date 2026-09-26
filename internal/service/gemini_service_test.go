@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -67,6 +68,37 @@ func TestParseFlexPrice(t *testing.T) {
 				t.Errorf("parseFlexPrice(%v) = %f, want %f", tt.input, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestReceiptDataUnmarshal(t *testing.T) {
+	jsonStr := `{
+		"vendor_name": "Costco Wholesale",
+		"order_date": "2026-09-19",
+		"category": "Groceries",
+		"description": "Bulk Groceries, Milk & Organic Eggs",
+		"total_price": 142.75
+	}`
+
+	var data ReceiptData
+	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+
+	if data.VendorName != "Costco Wholesale" {
+		t.Errorf("expected vendor 'Costco Wholesale', got '%s'", data.VendorName)
+	}
+	if data.OrderDate != "2026-09-19" {
+		t.Errorf("expected date '2026-09-19', got '%s'", data.OrderDate)
+	}
+	if data.Category != "Groceries" {
+		t.Errorf("expected category 'Groceries', got '%s'", data.Category)
+	}
+	if data.Description != "Bulk Groceries, Milk & Organic Eggs" {
+		t.Errorf("expected description, got '%s'", data.Description)
+	}
+	if data.TotalPrice != 142.75 {
+		t.Errorf("expected price 142.75, got %f", data.TotalPrice)
 	}
 }
 

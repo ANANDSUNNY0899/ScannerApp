@@ -23,10 +23,10 @@ type ReceiptOrder struct {
 // ReceiptExtractedData represents the structured JSON output from the Gemini Multimodal model.
 type ReceiptExtractedData struct {
 	VendorName  string  `json:"vendor_name"`
+	OrderDate   string  `json:"order_date"` // YYYY-MM-DD
 	Category    string  `json:"category"`
 	Description string  `json:"description"`
 	TotalPrice  float64 `json:"total_price"`
-	OrderDate   string  `json:"order_date"` // YYYY-MM-DD
 	Confidence  float64 `json:"confidence,omitempty"`
 }
 

@@ -54,22 +54,37 @@ const receiptPrompt = `Analyze this receipt image thoroughly and extract the exa
 Return ONLY a valid JSON object with the following fields:
 {
   "vendor_name": "Store, contractor, or business name (e.g. Home Depot, Starbucks, Acme Construction)",
+  "order_date": "YYYY-MM-DD",
   "category": "Broad classification (e.g. Construction, Dining, Hardware, Office Supplies, Travel, Utilities, Retail)",
-  "description": "Short summary of the purchased items or services (e.g. 100 Bags of Cement, Dinner meeting)",
-  "total_price": 0.00,
-  "order_date": "YYYY-MM-DD"
+  "description": "Combine all items into a single descriptive string (e.g. 100 Bags of Portland Cement & Materials)",
+  "total_price": 0.00
 }
 If order_date is missing or unreadable, use today's date in YYYY-MM-DD format.
 total_price must be a decimal number without currency symbols.
 Return ONLY raw JSON. Do not include markdown formatting, backticks, or code fences.`
 
-// Strict Go struct matching the prompt schema for unmarshaling
-type rawGeminiReceipt struct {
-	VendorName  string      `json:"vendor_name"`
-	Category    string      `json:"category"`
-	Description string      `json:"description"`
-	TotalPrice  interface{} `json:"total_price"` // Accommodates numbers and strings (e.g. "$45.50")
-	OrderDate   string      `json:"order_date"`
+// ReceiptData represents the structured JSON output expected by Android client
+type ReceiptData struct {
+	VendorName  string  `json:"vendor_name"`
+	OrderDate   string  `json:"order_date"`
+	Category    string  `json:"category"`
+	Description string  `json:"description"` // Combine all items into a single descriptive string
+	TotalPrice  float64 `json:"total_price"`
+}
+
+func (r *ReceiptData) UnmarshalJSON(data []byte) error {
+	type Alias ReceiptData
+	aux := struct {
+		RawPrice interface{} `json:"total_price"`
+		*Alias
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	r.TotalPrice = parseFlexPrice(aux.RawPrice)
+	return nil
 }
 
 func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byte, mimeType string) (*model.ReceiptExtractedData, error) {
@@ -127,7 +142,7 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 
 	// Clean and strictly parse JSON
 	cleanJSON := cleanJSONResponse(rawText)
-	var parsed rawGeminiReceipt
+	var parsed ReceiptData
 	if err := json.Unmarshal([]byte(cleanJSON), &parsed); err != nil {
 		log.Printf("ERROR: Failed to unmarshal Gemini receipt extraction JSON: %v. Raw AI text:\n%s", err, rawText)
 		return nil, fmt.Errorf("failed to parse receipt JSON from AI response: %w (raw response: %s)", err, rawText)
@@ -148,14 +163,14 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 		orderDate = time.Now().Format("2006-01-02")
 	}
 
-	totalPrice := parseFlexPrice(parsed.TotalPrice)
+	totalPrice := parsed.TotalPrice
 
 	return &model.ReceiptExtractedData{
 		VendorName:  vendor,
+		OrderDate:   orderDate,
 		Category:    category,
 		Description: strings.TrimSpace(parsed.Description),
 		TotalPrice:  totalPrice,
-		OrderDate:   orderDate,
 		Confidence:  0.98,
 	}, nil
 }
