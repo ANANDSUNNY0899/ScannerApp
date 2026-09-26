@@ -127,17 +127,10 @@ func (s *geminiService) ExtractReceiptData(ctx context.Context, imageBytes []byt
 		rawText, lastErr = s.extractWithREST(ctx, imageBytes, cleanMime, candidateModels)
 	}
 
-	// If all attempts failed or quota exhausted, provide graceful fallback
+	// If all attempts failed, return the actual error so the client knows and can retry
 	if rawText == "" {
-		log.Printf("Notice: All Gemini extraction attempts failed (%v). Providing draft receipt fallback.", lastErr)
-		return &model.ReceiptExtractedData{
-			VendorName:  "Scanned Bill / Receipt",
-			Category:    "General",
-			Description: "Uploaded Receipt (Ready for Review)",
-			TotalPrice:  0.0,
-			OrderDate:   time.Now().Format("2006-01-02"),
-			Confidence:  0.70,
-		}, nil
+		log.Printf("ERROR: All Gemini extraction attempts failed: %v", lastErr)
+		return nil, fmt.Errorf("AI receipt extraction failed (please try again): %w", lastErr)
 	}
 
 	// Clean and strictly parse JSON
